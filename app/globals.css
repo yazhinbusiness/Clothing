@@ -1,0 +1,227 @@
+@import "tailwindcss";
+
+/* =============================================================
+   OH MUST — DESIGN TOKENS
+   Dark + gold, "Precision is personal"
+   ============================================================= */
+
+:root {
+  --color-bg: #0b0b0c;
+  --color-surface: #161616;
+  --color-surface-2: #1e1e1f;
+  --color-surface-3: #262625;
+  --color-border: rgba(255, 255, 255, 0.09);
+  --color-border-strong: rgba(255, 255, 255, 0.16);
+
+  --color-text: #f3ede2;
+  --color-text-muted: #a79f92;
+  --color-text-faint: #726c62;
+
+  --color-gold: #d1a456;
+  --color-gold-bright: #e6c07c;
+  --color-gold-dim: #9c7c42;
+  --color-gold-contrast: #1a1508;
+
+  --color-success: #7fae7a;
+  --color-danger: #c9665a;
+
+  --font-inter: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
+  --font-display: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+
+  --shadow-stage: 0 40px 60px -25px rgba(0, 0, 0, 0.65);
+  --shadow-card: 0 10px 30px -12px rgba(0, 0, 0, 0.55);
+  --shadow-pop: 0 18px 40px -14px rgba(209, 164, 86, 0.35);
+
+  --background: var(--color-bg);
+  --foreground: var(--color-text);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-surface-2: var(--color-surface-2);
+  --color-surface-3: var(--color-surface-3);
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
+  --color-text: var(--color-text);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-faint: var(--color-text-faint);
+  --color-gold: var(--color-gold);
+  --color-gold-bright: var(--color-gold-bright);
+  --color-gold-dim: var(--color-gold-dim);
+  --color-success: var(--color-success);
+  --color-danger: var(--color-danger);
+  --font-sans: var(--font-inter);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+body {
+  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-gold);
+  color: var(--color-gold-contrast);
+}
+
+/* Slim, dark-friendly scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-3);
+  border-radius: 999px;
+}
+
+/* Hide scrollbar but keep scroll (for horizontal rails) */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* =============================================================
+   MOTION
+   ============================================================= */
+
+@keyframes om-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes om-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes om-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes om-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes om-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(209, 164, 86, 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 10px rgba(209, 164, 86, 0);
+  }
+}
+
+@keyframes om-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.animate-fade-up {
+  animation: om-fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-fade-in {
+  animation: om-fade-in 0.4s ease both;
+}
+
+.animate-pop-in {
+  animation: om-pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.animate-float {
+  animation: om-float 4.5s ease-in-out infinite;
+}
+
+.animate-pulse-ring {
+  animation: om-pulse-ring 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.om-shimmer {
+  background: linear-gradient(
+    110deg,
+    var(--color-surface-2) 8%,
+    var(--color-surface-3) 18%,
+    var(--color-surface-2) 33%
+  );
+  background-size: 200% 100%;
+  animation: om-shimmer 1.6s linear infinite;
+}
+
+.om-stagger > * {
+  animation: om-fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.om-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.om-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.om-stagger > *:nth-child(3) { animation-delay: 120ms; }
+.om-stagger > *:nth-child(4) { animation-delay: 180ms; }
+.om-stagger > *:nth-child(5) { animation-delay: 240ms; }
+.om-stagger > *:nth-child(6) { animation-delay: 300ms; }
+
+/* Tap feedback for interactive controls (mobile-first) */
+.om-tap {
+  transition: transform 0.15s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.om-tap:active {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .animate-fade-in,
+  .animate-pop-in,
+  .animate-float,
+  .animate-pulse-ring,
+  .om-shimmer,
+  .om-stagger > * {
+    animation: none !important;
+  }
+  .om-tap:active {
+    transform: none;
+  }
+}
