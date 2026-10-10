@@ -16,11 +16,11 @@ function Brand() {
     <Link
       href="/"
       aria-label="Oh Must home"
-      className="flex items-center gap-2 text-[var(--color-text)]"
+      className="flex items-center gap-1.5 sm:gap-2 text-[var(--color-text)]"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/logo.png" alt="" className="h-7 sm:h-8 w-auto" draggable={false} />
-      <span className="font-[var(--font-display)] text-[19px] sm:text-[22px] tracking-[0.12em] uppercase leading-none">
+      <img src="/logo.png" alt="" className="h-6 sm:h-8 w-auto shrink-0" draggable={false} />
+      <span className="font-[var(--font-display)] text-[16px] min-[400px]:text-[18px] sm:text-[22px] tracking-[0.1em] sm:tracking-[0.12em] uppercase leading-none whitespace-nowrap">
         Oh Must
       </span>
     </Link>
@@ -54,8 +54,9 @@ export default function Header({ onMenuClick, cartCount = 0 }) {
           <MenuIcon size={24} />
         </button>
 
-        {/* Centered on mobile (like the reference), left-aligned on desktop */}
-        <div className="absolute left-1/2 -translate-x-1/2 lg:static lg:translate-x-0">
+        {/* Sits right after the menu button on mobile (centering it left no
+            room for the three icons on the right), left-aligned on desktop */}
+        <div className="ml-1 min-w-0 lg:ml-0">
           <Brand />
         </div>
 
@@ -74,7 +75,7 @@ export default function Header({ onMenuClick, cartCount = 0 }) {
           />
         </form>
 
-        <div className="ml-auto flex items-center">
+        <div className="ml-auto flex shrink-0 items-center">
           <button
             type="button"
             onClick={() => setSearchOpen((v) => !v)}

@@ -60,6 +60,7 @@ export default function ConfiguratorLoader({
   productCode,
   defaultMaterialCode = null,
   defaultColorCode = null,
+  defaultOptions = null,
   shopifyProduct = null,
 }) {
   const [product, setProduct] = useState(null);
@@ -118,6 +119,25 @@ export default function ConfiguratorLoader({
         const colorData = startingMaterialCode
           ? await getProductColorsForMaterial(productCode, startingMaterialCode)
           : [];
+
+        if (
+          defaultMaterialCode &&
+          !materialData.some((m) => m.material_code === defaultMaterialCode)
+        ) {
+          console.warn(
+            `[OhMust] Listing material "${defaultMaterialCode}" is not a material of ${productCode}. Available:`,
+            materialData.map((m) => m.material_code)
+          );
+        }
+        if (
+          defaultColorCode &&
+          !colorData.some((c) => c.color_code === defaultColorCode)
+        ) {
+          console.warn(
+            `[OhMust] Listing colour "${defaultColorCode}" is not in product_material_color_map for ${productCode} / ${startingMaterialCode}. Available:`,
+            colorData.map((c) => c.color_code)
+          );
+        }
 
         setProduct(productData);
         setSizes(sizeData);
@@ -178,6 +198,7 @@ export default function ConfiguratorLoader({
       manifest={manifest}
       pricingManifest={pricingManifest}
       shopifyProduct={shopifyProduct}
+      startingOptions={defaultOptions ?? {}}
     />
   );
 }

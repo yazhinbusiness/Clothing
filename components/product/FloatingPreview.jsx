@@ -10,7 +10,7 @@ export default function FloatingPreview({ visible, justUpdated, onTap, children 
       aria-label="Scroll back to full product image"
       className={[
         "lg:hidden fixed left-4 z-30 h-[124px] w-[124px] rounded-2xl overflow-hidden",
-        "border bg-[var(--color-surface)] shadow-[var(--shadow-card)]",
+        "border bg-[image:var(--studio-bg)] shadow-[var(--shadow-card)]",
         "transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
         justUpdated ? "border-[var(--color-gold)]" : "border-[var(--color-border)]",
         visible

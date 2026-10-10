@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 /* =========================================================
    LAYER — unchanged rendering technique from before: the
@@ -9,7 +9,7 @@ import { useMemo, useState } from "react";
    changes in this rewrite (see below).
    ========================================================= */
 
-function Layer({ src, zIndex = 1, color = "#ffffff", alt = "", visible }) {
+function Layer({ src, zIndex = 1, filterId, alt = "", visible }) {
   const [failed, setFailed] = useState(false);
 
   // If a DB row ever points at a file that no longer exists (e.g. a
@@ -18,59 +18,81 @@ function Layer({ src, zIndex = 1, color = "#ffffff", alt = "", visible }) {
   // database being perfectly tidy for the UI to render cleanly.
   if (!src || failed) return null;
 
+  // The colour is applied to the artwork's OWN pixels by an SVG filter
+  // (see TintFilter), so folds/shadows stay and — unlike the old
+  // "plain image + masked colour overlay" — there is no second layer
+  // whose anti-aliased edge can leave a pale outline around each piece.
   return (
-    <div
+    <img
+      src={src}
+      alt={alt}
+      draggable={false}
+      loading="eager"
+      onError={() => setFailed(true)}
       style={{
         position: "absolute",
         inset: 0,
         width: "100%",
         height: "100%",
-        zIndex,
+        objectFit: "contain",
         pointerEvents: "none",
+        userSelect: "none",
+        zIndex,
         opacity: visible ? 1 : 0,
+        filter: `url(#${filterId})`,
         transition: "opacity 150ms ease",
       }}
-    >
-      <img
-        src={src}
-        alt={alt}
-        draggable={false}
-        loading="eager"
-        onError={() => setFailed(true)}
-        style={{
-          position: "absolute",
-          inset: 0,
-          width: "100%",
-          height: "100%",
-          objectFit: "contain",
-          pointerEvents: "none",
-          userSelect: "none",
-          zIndex: 1,
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          width: "100%",
-          height: "100%",
-          backgroundColor: color,
-          WebkitMaskImage: `url("${src}")`,
-          maskImage: `url("${src}")`,
-          WebkitMaskSize: "contain",
-          maskSize: "contain",
-          WebkitMaskRepeat: "no-repeat",
-          maskRepeat: "no-repeat",
-          WebkitMaskPosition: "center",
-          maskPosition: "center",
-          mixBlendMode: "multiply",
-          opacity: visible ? 0.82 : 0,
-          transition: "opacity 150ms ease",
-          pointerEvents: "none",
-          zIndex: 2,
-        }}
-      />
-    </div>
+    />
+  );
+}
+
+/* =========================================================
+   TINT FILTER — maps the white-ish artwork to the chosen colour
+   while keeping its light/dark detail (folds, drape, seams).
+   slope/intercept are chosen so the artwork's typical highlight
+   (~0.94) becomes exactly the target colour and darker folds
+   scale down from it. Alpha is untouched.
+   ========================================================= */
+function hexToRgb(hex) {
+  let h = String(hex).trim();
+  if (/^hsl/i.test(h)) {
+    // fallback colours from getColorHex() can be hsl(...)
+    const m = h.match(/hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%/i);
+    if (m) {
+      const [hh, ss, ll] = [Number(m[1]) / 360, Number(m[2]) / 100, Number(m[3]) / 100];
+      const f = (n) => {
+        const k = (n + hh * 12) % 12;
+        const a = ss * Math.min(ll, 1 - ll);
+        return ll - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+      };
+      return [f(0), f(8), f(4)];
+    }
+  }
+  h = h.replace("#", "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  const n = parseInt(h, 16);
+  if (Number.isNaN(n)) return [0.55, 0.55, 0.55];
+  return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+
+function TintFilter({ id, color }) {
+  const GAIN = 2.4;
+  const HIGHLIGHT = 0.94;
+  const channels = hexToRgb(color).map((c) => Math.max(c, 0.07));
+  const slope = channels.map((c) => (GAIN * c).toFixed(4));
+  const intercept = channels.map((c) => ((1 - GAIN * HIGHLIGHT) * c).toFixed(4));
+  return (
+    <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true" focusable="false">
+      <defs>
+        <filter id={id} colorInterpolationFilters="sRGB" x="0" y="0" width="100%" height="100%">
+          <feComponentTransfer>
+            <feFuncR type="linear" slope={slope[0]} intercept={intercept[0]} />
+            <feFuncG type="linear" slope={slope[1]} intercept={intercept[1]} />
+            <feFuncB type="linear" slope={slope[2]} intercept={intercept[2]} />
+          </feComponentTransfer>
+        </filter>
+      </defs>
+    </svg>
   );
 }
 
@@ -102,6 +124,9 @@ function getAssetUrl(fileKey) {
    @param {string} colorHex - current color tint
    ========================================================= */
 export default function ShirtCustomizer({ manifest, selection, colorHex = "#f5f1ea" }) {
+  // Unique per instance (the page renders this component twice: gallery
+  // and floating preview) and safe to use inside url(#...).
+  const filterId = `om-tint-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const visibleAssetCodes = useMemo(() => {
     const visible = new Set();
     for (const asset of manifest?.assets ?? []) {
@@ -136,12 +161,13 @@ export default function ShirtCustomizer({ manifest, selection, colorHex = "#f5f1
         overflow: "hidden",
       }}
     >
+      <TintFilter id={filterId} color={colorHex} />
       {manifest.assets.map((asset) => (
         <Layer
           key={asset.asset_code}
           src={getAssetUrl(asset.file_key)}
           zIndex={asset.z_index ?? 1}
-          color={colorHex}
+          filterId={filterId}
           alt={asset.asset_code}
           visible={visibleAssetCodes.has(asset.asset_code)}
         />

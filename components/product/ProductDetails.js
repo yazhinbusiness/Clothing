@@ -92,6 +92,31 @@ import {
  */
 
 /**
+ * Finds the real option_value_code for a listing tag value, tolerating
+ * naming differences (tag "Full" -> code FULL_SLEEVE, "Notched" ->
+ * NOTCHED_COLLAR, "3/4" -> THREE_QUARTER ...). Returns null if nothing fits.
+ */
+function resolveOptionCode(groupOptions, wanted) {
+  if (!wanted || !groupOptions?.length) return null;
+  const norm = (v) =>
+    String(v).toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const codes = groupOptions.map((o) => o.option_value_code);
+  // Listing wording -> the code your option_value_master actually uses
+  // (FIT group is REGULAR / FIT / LOOSE, so "Slim" means FIT).
+  const ALIASES = { SLIM: "FIT", FITTED: "FIT", RELAXED: "LOOSE" };
+  const w0 = norm(wanted).replace(/^3_4$/, "THREE_QUARTER");
+  const w = codes.some((c) => norm(c) === ALIASES[w0]) ? ALIASES[w0] : w0;
+  const stem = w.replace(/ED$/, "");
+  return (
+    codes.find((c) => norm(c) === w) ??
+    codes.find((c) => norm(c).startsWith(`${w}_`)) ??
+    codes.find((c) => norm(c) === stem || norm(c).startsWith(`${stem}_`)) ??
+    codes.find((c) => norm(c).includes(w)) ??
+    null
+  );
+}
+
+/**
  * @param {{
  *   product: any,
  *   sizes: ProductSize[],
@@ -117,6 +142,7 @@ export default function ProductDetails({
   manifest,
   pricingManifest,
   shopifyProduct = null,
+  startingOptions = {},
 }) {
   /* =========================================================
      DEFAULT VALUES
@@ -198,13 +224,26 @@ export default function ProductDetails({
      blocking the UI from updating first. See withDraftUpdate below
      and handleAddToCart for where the two get reconciled.
      ========================================================= */
+  // Starts from the product's database defaults, then lays the LISTING's
+  // own look on top (its sleeve / collar / fit / pocket / placket tags) —
+  // so a "Navy 3/4 sleeve" listing opens as a 3/4 sleeve shirt and
+  // changing just the collar leaves everything else as listed.
   const initialDraftSelection = Object.fromEntries(
-    Object.entries(options).map(([groupCode, groupOptions]) => [
-      groupCode,
-      groupOptions.find((o) => o.is_default)?.option_value_code ??
+    Object.entries(options).map(([groupCode, groupOptions]) => {
+      const dbDefault =
+        groupOptions.find((o) => o.is_default)?.option_value_code ??
         groupOptions[0]?.option_value_code ??
-        null,
-    ])
+        null;
+      const wanted = startingOptions?.[groupCode];
+      const fromListing = wanted ? resolveOptionCode(groupOptions, wanted) : null;
+      if (wanted && !fromListing) {
+        console.warn(
+          `[OhMust] Listing tag ${groupCode}:${wanted} matches no option. Available:`,
+          groupOptions.map((o) => o.option_value_code)
+        );
+      }
+      return [groupCode, fromListing ?? dbDefault];
+    })
   );
 
   const [draftSelection, setDraftSelection] = useState(initialDraftSelection);
@@ -318,6 +357,86 @@ const [customMeasurements, setCustomMeasurements] =
      ========================================================= */
 
   /*
+   * createDefaultConfiguration always builds the DATABASE default (White
+   * cotton, default sleeve/collar...). Compare the customer's starting look
+   * — the listing's colour, material and options — with what the database
+   * actually created, and apply every difference. Material first (colours
+   * are per material), then colour, then options.
+   */
+  async function applyStartingLook(configurationId) {
+    let details = await getConfigurationDetails(configurationId);
+    const problems = [];
+
+    async function attempt(label, fn) {
+      try {
+        await fn();
+      } catch (err) {
+        console.error(`[OhMust] Could not apply ${label}:`, err);
+        problems.push(label);
+      }
+    }
+
+    console.log("[OhMust] created configuration", {
+      created: {
+        material: details.material,
+        color: details.color,
+        options: details.options,
+      },
+      wanted: {
+        material: selectedMaterial,
+        color: selectedColor,
+        options: draftSelection,
+      },
+    });
+
+    if (selectedMaterial && details.material !== selectedMaterial) {
+      await attempt(`material ${selectedMaterial}`, () =>
+        updateConfigurationMaterial({ configurationId, materialCode: selectedMaterial })
+      );
+    }
+
+    if (selectedColor) {
+      details = await getConfigurationDetails(configurationId);
+      if (details.color !== selectedColor) {
+        await attempt(`colour ${selectedColor}`, () =>
+          updateConfigurationColor({ configurationId, colorCode: selectedColor })
+        );
+      }
+    }
+
+    details = await getConfigurationDetails(configurationId);
+    for (const [groupCode, valueCode] of Object.entries(draftSelection)) {
+      if (valueCode && details.options?.[groupCode] !== valueCode) {
+        await attempt(`${groupCode} ${valueCode}`, () =>
+          updateConfigurationOption({
+            configurationId,
+            optionGroupCode: groupCode,
+            optionValueCode: valueCode,
+          })
+        );
+      }
+    }
+
+    details = await getConfigurationDetails(configurationId);
+
+    if (selectedColor && details.color !== selectedColor) {
+      problems.push(`colour ${selectedColor}`);
+    }
+    if (problems.length) {
+      console.error("[OhMust] Starting look not fully applied", {
+        problems,
+        saved: { material: details.material, color: details.color, options: details.options },
+      });
+      setError(
+        `Couldn't start from this listing's ${[...new Set(problems)].join(", ")}. ` +
+          "Showing what's saved instead."
+      );
+    }
+
+    return details;
+  }
+
+  /*
    * Creates the saved configuration (if one doesn't exist yet) using the
    * customer's current size/material/color, and syncs React state to it.
    * Shared by the Customize button and by the very first option tap, so
@@ -330,24 +449,8 @@ const [customMeasurements, setCustomMeasurements] =
         sizeCode: selectedSize,
       });
 
-    // createDefaultConfiguration applies the product's database
-    // defaults — apply anything the customer already changed.
-    if (selectedMaterial && selectedMaterial !== defaultMaterial) {
-      await updateConfigurationMaterial({
-        configurationId,
-        materialCode: selectedMaterial,
-      });
-    }
-
-    if (selectedColor && selectedColor !== defaultColor) {
-      await updateConfigurationColor({
-        configurationId,
-        colorCode: selectedColor,
-      });
-    }
-
     const configurationDetails =
-      await getConfigurationDetails(configurationId);
+      await applyStartingLook(configurationId);
 
     setConfiguration(configurationDetails);
     setSelectedSize(configurationDetails.size);
@@ -482,25 +585,7 @@ const [customMeasurements, setCustomMeasurements] =
           sizeCode: selectedSize,
         });
 
-      if (
-        selectedMaterial &&
-        selectedMaterial !== defaultMaterial
-      ) {
-        await updateConfigurationMaterial({
-          configurationId,
-          materialCode: selectedMaterial,
-        });
-      }
-
-      if (
-        selectedColor &&
-        selectedColor !== defaultColor
-      ) {
-        await updateConfigurationColor({
-          configurationId,
-          colorCode: selectedColor,
-        });
-      }
+      await applyStartingLook(configurationId);
     }
 
     // Validate + freeze price + move to CART

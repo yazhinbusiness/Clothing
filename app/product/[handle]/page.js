@@ -37,6 +37,7 @@ export default async function ProductPage({ params }) {
             productCode={mapping.productCode}
             defaultMaterialCode={mapping.defaultMaterialCode}
             defaultColorCode={mapping.defaultColorCode}
+            defaultOptions={mapping.defaultOptions}
             shopifyProduct={shopifyProduct}
           />
         ) : (

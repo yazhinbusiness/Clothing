@@ -15,11 +15,11 @@ export default function ProductGallery({
   return (
     <div
       className={[
-        "relative rounded-3xl border bg-[var(--color-surface)] p-3 sm:p-6 overflow-hidden",
+        "relative rounded-3xl border bg-[image:var(--studio-bg)] p-3 sm:p-6 overflow-hidden",
         "animate-fade-up transition-shadow duration-300",
         justUpdated
           ? "border-[var(--color-gold)] shadow-[0_0_0_4px_rgba(209,164,86,0.18)]"
-          : "border-[var(--color-border)]",
+          : "border-[var(--color-border-strong)]",
       ].join(" ")}
     >
       {badgeLabel ? (
@@ -63,12 +63,12 @@ export default function ProductGallery({
         <div
           aria-hidden
           className="absolute bottom-0 h-8 w-[70%] rounded-full blur-xl"
-          style={{ background: "radial-gradient(ellipse, rgba(209,164,86,0.28), transparent 70%)" }}
+          style={{ background: "radial-gradient(ellipse, rgba(48,38,24,0.38), transparent 70%)" }}
         />
       </div>
 
       {isBusy ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-surface)]/40 backdrop-blur-[1px]">
+        <div className="absolute inset-0 flex items-center justify-center bg-[#d2cbbd]/50 backdrop-blur-[1px]">
           <span className="h-9 w-9 rounded-full border-2 border-[var(--color-gold)] border-t-transparent animate-spin" />
         </div>
       ) : null}

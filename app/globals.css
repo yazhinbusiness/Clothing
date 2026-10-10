@@ -17,6 +17,10 @@
   --color-text-muted: #a79f92;
   --color-text-faint: #726c62;
 
+  /* Shirt preview "studio": warm stone so navy/black/olive/burgundy shirts
+     stand out (the page itself stays dark + gold) */
+  --studio-bg: radial-gradient(ellipse at 50% 42%, #e4dfd3 0%, #d2cbbd 55%, #beb6a6 100%);
+
   --color-gold: #d1a456;
   --color-gold-bright: #e6c07c;
   --color-gold-dim: #9c7c42;
