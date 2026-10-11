@@ -84,6 +84,16 @@ export default function Header({ onMenuClick, cartCount = 0 }) {
           >
             <SearchIcon size={22} />
           </button>
+          <Link
+            href="/orders"
+            aria-label="Account and orders"
+            className={`${iconBtn} hidden sm:inline-flex`}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="8" r="3.6" />
+              <path d="M4.5 20c.9-3.6 3.9-5.4 7.5-5.4s6.6 1.8 7.5 5.4" />
+            </svg>
+          </Link>
           <button type="button" className={`${iconBtn} hidden sm:inline-flex`} aria-label="Wishlist">
             <HeartIcon size={22} />
           </button>

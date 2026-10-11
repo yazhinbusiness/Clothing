@@ -1,12 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   getCartItems,
   removeCartItem,
   updateCartItemQuantity,
 } from "../../services/configurationService";
 
+import { getGuestCartId } from "@/lib/cart/guestCart";
+import { readCartTitles, cartTitleOf } from "@/lib/cart/titles";
+import { getCustomSizeOffer } from "@/lib/measurements/api";
+import RemakePromise from "@/components/measurements/RemakePromise";
+import DeliveryEstimate from "@/components/delivery/DeliveryEstimate";
+import { useAuth } from "@/lib/auth/useAuth";
+import { summarizeCart, formatINR } from "@/lib/checkout/gst";
 import StoreShell from "@/components/layout/StoreShell";
 import Button from "@/components/ui/Button";
 import QuantityStepper from "@/components/ui/QuantityStepper";
@@ -14,10 +22,38 @@ import { TrashIcon, BagIcon } from "@/components/ui/icons";
 
 export default function CartPage() {
   const [cartItems, setCartItems] = useState([]);
+  const [titles, setTitles] = useState({});
+  useEffect(() => setTitles(readCartTitles()), []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [removingId, setRemovingId] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
+  const [checkingOut, setCheckingOut] = useState(false);
+  const router = useRouter();
+  const { user, accessToken, loading: authLoading } = useAuth();
+  // What the customer could save by using My size on their standard-size lines.
+  const [potentialSaving, setPotentialSaving] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const standard = cartItems.filter((i) => i.measurement_mode !== "CUSTOM");
+    if (standard.length === 0) {
+      setPotentialSaving(0);
+      return undefined;
+    }
+    Promise.all(
+      standard.map((i) =>
+        getCustomSizeOffer(i.configuration_id)
+          .then((o) => (o?.eligible ? Number(o.saving) * Number(i.quantity || 1) : 0))
+          .catch(() => 0)
+      )
+    ).then((list) => {
+      if (!cancelled) setPotentialSaving(Math.floor(list.reduce((a, b) => a + b, 0)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cartItems, user?.id]);
 
   useEffect(() => {
     async function loadCart() {
@@ -94,10 +130,44 @@ export default function CartPage() {
     }
   }
 
-  const cartTotal = cartItems.reduce(
-    (total, item) => total + Number(item.line_total || 0),
-    0
-  );
+  /*
+   * CHECKOUT — login is required. The server re-reads the bag from Supabase
+   * and builds the Shopify draft order; we only send the bag id + our login.
+   */
+  async function handleCheckout() {
+    if (authLoading) return;
+    if (!user) {
+      router.push("/login?next=/cart");
+      return;
+    }
+    try {
+      setCheckingOut(true);
+      setError("");
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ guestCartId: getGuestCartId(), titles: readCartTitles() }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        router.push("/login?next=/cart");
+        return;
+      }
+      if (!response.ok || !result.url) {
+        throw new Error(result.error || "Unable to start checkout.");
+      }
+      window.location.href = result.url; // Shopify's secure payment page
+    } catch (err) {
+      console.error(err);
+      setError(err.message);
+      setCheckingOut(false);
+    }
+  }
+
+  const summary = summarizeCart(cartItems);
 
   return (
     <StoreShell cartCount={cartItems.length} hideBottomNav>
@@ -143,7 +213,7 @@ export default function CartPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <h2 className="font-[var(--font-display)] text-lg">
-                        {item.product_name}
+                        {cartTitleOf(titles[item.cart_item_id]) ?? item.product_name}
                       </h2>
 
                       {item.measurement_mode === "CUSTOM" ? (
@@ -228,21 +298,54 @@ export default function CartPage() {
                 Order Summary
               </h2>
               <div className="flex items-center justify-between text-sm text-[var(--color-text-muted)]">
-                <span>Subtotal</span>
-                <span>₹{cartTotal.toLocaleString("en-IN")}</span>
+                <span>Price (before GST)</span>
+                <span>{formatINR(summary.taxablePaise)}</span>
               </div>
+              {Object.entries(summary.byRate).map(([rate, paise]) => (
+                <div
+                  key={rate}
+                  className="mt-2 flex items-center justify-between text-sm text-[var(--color-text-muted)]"
+                >
+                  <span>GST ({Math.round(Number(rate) * 100)}%)</span>
+                  <span>{formatINR(paise)}</span>
+                </div>
+              ))}
               <div className="mt-2 flex items-center justify-between text-sm text-[var(--color-text-muted)]">
                 <span>Shipping</span>
-                <span>Calculated at checkout</span>
+                <span className="text-[var(--color-success)]">Free</span>
               </div>
               <div className="mt-4 pt-4 border-t border-[var(--color-border)] flex items-center justify-between">
                 <span className="font-medium">Total</span>
                 <span className="font-[var(--font-display)] text-xl text-[var(--color-gold-bright)]">
-                  ₹{cartTotal.toLocaleString("en-IN")}
+                  {formatINR(summary.grandTotalPaise)}
                 </span>
               </div>
-              <Button variant="primary" fullWidth className="mt-5">
-                Proceed to Checkout
+              <p className="mt-1 text-[11px] text-[var(--color-text-faint)] text-right">
+                Inclusive of all taxes
+              </p>
+              {potentialSaving > 0 && (
+                <div className="mt-4 rounded-xl border border-[var(--color-success)]/40 bg-[var(--color-surface-2)] p-3 text-xs">
+                  <p className="font-medium text-[var(--color-success)]">
+                    You could save ₹{potentialSaving.toLocaleString("en-IN")}
+                  </p>
+                  <p className="mt-1 text-[var(--color-text-muted)]">
+                    Order made to your own measurements and get 15% off your first My size
+                    order. Open the item, choose <em>My size</em> and enter your measurements.
+                  </p>
+                </div>
+              )}
+              <DeliveryEstimate className="mt-3" />
+              <div className="mt-3">
+                <RemakePromise compact />
+              </div>
+              <Button
+                variant="primary"
+                fullWidth
+                className="mt-5"
+                loading={checkingOut}
+                onClick={handleCheckout}
+              >
+                {user || authLoading ? "Proceed to Checkout" : "Sign in to Checkout"}
               </Button>
             </div>
           </div>
@@ -256,11 +359,17 @@ export default function CartPage() {
               Total
             </span>
             <span className="font-[var(--font-display)] text-lg text-[var(--color-gold-bright)]">
-              ₹{cartTotal.toLocaleString("en-IN")}
+              {formatINR(summary.grandTotalPaise)}
             </span>
           </div>
-          <Button variant="primary" fullWidth className="!py-3">
-            Checkout
+          <Button
+            variant="primary"
+            fullWidth
+            className="!py-3"
+            loading={checkingOut}
+            onClick={handleCheckout}
+          >
+            {user || authLoading ? "Checkout" : "Sign in to Checkout"}
           </Button>
         </div>
       )}

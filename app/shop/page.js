@@ -1,3 +1,4 @@
+import { withSupabasePrices } from "@/lib/shop/listingPrice";
 import StoreShell from "@/components/layout/StoreShell";
 import ShopGrid from "@/components/shop/ShopGrid";
 import { getShopifyProducts } from "@/lib/shopify/catalog";
@@ -13,7 +14,7 @@ export default async function ShopPage({ searchParams }) {
   let loadError = "";
 
   try {
-    products = await getShopifyProducts(100);
+    products = await withSupabasePrices(await getShopifyProducts(100));
   } catch (err) {
     console.error("Failed to load Shopify products:", err);
     loadError = err instanceof Error ? err.message : "Unable to load products.";

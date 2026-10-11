@@ -1,7 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+import { useAuth } from "@/lib/auth/useAuth";
+import MeasurementModal from "@/components/measurements/MeasurementModal";
+import RemakePromise from "@/components/measurements/RemakePromise";
+import DeliveryEstimate from "@/components/delivery/DeliveryEstimate";
+import {
+  getMeasurementForm,
+  getMyProfiles,
+  saveMyProfile,
+  deleteMyProfile,
+  applyProfileToConfiguration,
+  getCustomSizeOffer,
+} from "@/lib/measurements/api";
 import { computeShirtPrice } from "@/lib/pricing/shirtPricing";
 
 import {
@@ -18,6 +30,7 @@ import { FeatureRow, ShippingRow } from "@/components/product/TrustBadges";
 import RelatedProducts from "@/components/product/RelatedProducts";
 import Button from "@/components/ui/Button";
 import Chip from "@/components/ui/Chip";
+import { resolveOptionCode } from "@/lib/shop/optionMatch";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import OptionSwatchCard from "@/components/product/OptionSwatchCard";
 import { getColorHex } from "@/lib/colorMap";
@@ -61,10 +74,11 @@ import {
   updateConfigurationColor,
   updateConfigurationSize,
   getConfigurationUiRules,
-  updateConfigurationMeasurements,
   useStandardConfigurationSize,
   addConfigurationToCart,
+  getCartItems,
 } from "@/services/configurationService";
+import { rememberCartTitle } from "@/lib/cart/titles";
 
 /**
  * @typedef {Object} ProductSize
@@ -90,31 +104,6 @@ import {
  * @property {string} color_code
  * @property {boolean} is_default
  */
-
-/**
- * Finds the real option_value_code for a listing tag value, tolerating
- * naming differences (tag "Full" -> code FULL_SLEEVE, "Notched" ->
- * NOTCHED_COLLAR, "3/4" -> THREE_QUARTER ...). Returns null if nothing fits.
- */
-function resolveOptionCode(groupOptions, wanted) {
-  if (!wanted || !groupOptions?.length) return null;
-  const norm = (v) =>
-    String(v).toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  const codes = groupOptions.map((o) => o.option_value_code);
-  // Listing wording -> the code your option_value_master actually uses
-  // (FIT group is REGULAR / FIT / LOOSE, so "Slim" means FIT).
-  const ALIASES = { SLIM: "FIT", FITTED: "FIT", RELAXED: "LOOSE" };
-  const w0 = norm(wanted).replace(/^3_4$/, "THREE_QUARTER");
-  const w = codes.some((c) => norm(c) === ALIASES[w0]) ? ALIASES[w0] : w0;
-  const stem = w.replace(/ED$/, "");
-  return (
-    codes.find((c) => norm(c) === w) ??
-    codes.find((c) => norm(c).startsWith(`${w}_`)) ??
-    codes.find((c) => norm(c) === stem || norm(c).startsWith(`${stem}_`)) ??
-    codes.find((c) => norm(c).includes(w)) ??
-    null
-  );
-}
 
 /**
  * @param {{
@@ -271,6 +260,8 @@ export default function ProductDetails({
     return message || "Unable to add item to cart.";
   }
 
+  const [syncingCount, setSyncingCount] = useState(0);
+
   function withDraftUpdate(groupCode, valueCode, handler) {
     return (...args) => {
       // Visual update is always instant, regardless of anything below.
@@ -285,11 +276,16 @@ export default function ProductDetails({
       // a little latency only for rapid back-to-back taps — a single
       // tap is unaffected.
       const previousSave = pendingSaveRef.current;
+      setSyncingCount((c) => c + 1);
       const thisSave = (async () => {
-        if (previousSave) {
-          await previousSave.catch(() => {});
+        try {
+          if (previousSave) {
+            await previousSave.catch(() => {});
+          }
+          return await handler(...args);
+        } finally {
+          setSyncingCount((c) => c - 1);
         }
-        return handler(...args);
       })();
 
       pendingSaveRef.current = thisSave.catch((err) => {
@@ -304,7 +300,7 @@ export default function ProductDetails({
       return computeShirtPrice(pricingManifest, {
         sizeCode: selectedSize,
         materialCode: selectedMaterial,
-        optionValueCodes: Object.values(draftSelection).filter(Boolean),
+        options: draftSelection,
       });
     } catch (err) {
       console.error("Local price computation error:", err);
@@ -319,12 +315,14 @@ export default function ProductDetails({
 const [measurementMode, setMeasurementMode] =
   useState("STANDARD");
 
-const [customMeasurements, setCustomMeasurements] =
-  useState({
-    chest: "",
-    waist: "",
-    hip: "",
-  });
+// "My size": measurements live in the customer's saved profiles.
+const { user, loading: authLoading } = useAuth();
+const pathname = usePathname();
+const [sizeModalOpen, setSizeModalOpen] = useState(false);
+const [profiles, setProfiles] = useState([]);
+const [measurementForm, setMeasurementForm] = useState([]);
+const [activeProfileName, setActiveProfileName] = useState(null);
+const [offer, setOffer] = useState(null);
 
   /* =========================================================
      CONFIGURATION STATE
@@ -363,6 +361,14 @@ const [customMeasurements, setCustomMeasurements] =
    * actually created, and apply every difference. Material first (colours
    * are per material), then colour, then options.
    */
+  async function syncSavedConfigurationToScreen(configurationId) {
+    const saved = await getConfigurationDetails(configurationId);
+    if (selectedSize && saved.size !== selectedSize) {
+      await updateConfigurationSize({ configurationId, sizeCode: selectedSize });
+    }
+    return applyStartingLook(configurationId);
+  }
+
   async function applyStartingLook(configurationId) {
     let details = await getConfigurationDetails(configurationId);
     const problems = [];
@@ -588,10 +594,38 @@ const [customMeasurements, setCustomMeasurements] =
       await applyStartingLook(configurationId);
     }
 
+    // Remember which cart lines existed so the new one can be found and
+    // labelled with this listing's title (display only).
+    let idsBefore = null;
+    try {
+      idsBefore = new Set((await getCartItems()).map((i) => i.cart_item_id));
+    } catch {}
+
+    // What the customer sees must be exactly what is saved (and priced).
+    // If any background save was lost, re-apply it now.
+    await syncSavedConfigurationToScreen(configurationId);
+
     // Validate + freeze price + move to CART
     await addConfigurationToCart(
       configurationId
     );
+
+    try {
+      if (idsBefore && shopifyProduct?.title) {
+        const after = await getCartItems();
+        for (const item of after) {
+          if (!idsBefore.has(item.cart_item_id)) {
+            rememberCartTitle(
+              item.cart_item_id,
+              shopifyProduct.title,
+              (shopifyProduct.variants?.nodes ?? []).find((v) => v.availableForSale)?.id ??
+                shopifyProduct.variants?.nodes?.[0]?.id ??
+                null
+            );
+          }
+        }
+      }
+    } catch {}
 
     // Reload so React knows status is CART
     const updatedConfiguration =
@@ -780,76 +814,57 @@ const [customMeasurements, setCustomMeasurements] =
      SIZE CHANGE
      ========================================================= */
 
-  async function handleSaveMeasurements() {
-    
-  const chestCm = Number(customMeasurements.chest);
-  const waistCm = Number(customMeasurements.waist);
-  const hipCm = Number(customMeasurements.hip);
-
-  if (
-    !Number.isFinite(chestCm) ||
-    !Number.isFinite(waistCm) ||
-    !Number.isFinite(hipCm) ||
-    chestCm <= 0 ||
-    waistCm <= 0 ||
-    hipCm <= 0
-  ) {
-    setError(
-      "Please enter valid Chest, Waist, and Hip measurements."
-    );
-    return;
+  async function openMySize() {
+    if (authLoading) return;
+    if (!user) {
+      router.push(`/login?next=${encodeURIComponent(pathname || "/")}`);
+      return;
+    }
+    try {
+      setLoading(true);
+      setError("");
+      const [form, list] = await Promise.all([getMeasurementForm(), getMyProfiles()]);
+      setMeasurementForm(form);
+      setProfiles(list);
+      setSizeModalOpen(true);
+    } catch (err) {
+      console.error("My size error:", err);
+      setError(err instanceof Error ? err.message : "Unable to load your measurements.");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  /*
-   * Customer enters centimeters.
-   * Database stores canonical measurements
-   * as integer millimeters.
-   */
+  async function useProfile(profileId, list) {
+    // Make sure the last option tap has landed, then attach the measurements
+    // to this exact configuration (the database prices from them).
+    if (pendingSaveRef.current) await pendingSaveRef.current;
+    let configurationId = configuration?.id;
+    if (!configurationId) configurationId = await createConfigurationAndSync();
 
-  const chestMm = Math.round(chestCm * 10);
-  const waistMm = Math.round(waistCm * 10);
-  const hipMm = Math.round(hipCm * 10);
-
-  try {
-    setLoading(true);
-    setError("");
-
-    await updateConfigurationMeasurements(
-      configuration.id,
-      {
-        chestMm,
-        waistMm,
-        hipMm,
-      }
-    );
-
-    /*
-     * The RPC recalculates pricing in Supabase.
-     * Reload configuration so React receives
-     * the new pricing values.
-     */
-
-    const updatedConfiguration =
-      await getConfigurationDetails(
-        configuration.id
-      );
-
-    setConfiguration(updatedConfiguration);
-  } catch (err) {
-    console.error(
-      "Measurement update error:",
-      err
-    );
-
-    setError(
-      err instanceof Error
-        ? err.message
-        : "Unable to save measurements."
-    );
-  } finally {
-    setLoading(false);
+    await applyProfileToConfiguration(configurationId, profileId);
+    const updated = await getConfigurationDetails(configurationId);
+    setConfiguration(updated);
+    setMeasurementMode("CUSTOM");
+    setActiveProfileName(list.find((p) => p.id === profileId)?.name ?? null);
+    setSizeModalOpen(false);
   }
-}
+
+  async function handleSizeModalSubmit(payload) {
+    if (payload.useExistingId) {
+      await useProfile(payload.useExistingId, profiles);
+      return;
+    }
+    const savedId = await saveMyProfile(payload);
+    const list = await getMyProfiles();
+    setProfiles(list);
+    await useProfile(savedId, list);
+  }
+
+  async function handleDeleteProfile(profile) {
+    await deleteMyProfile(profile.id);
+    setProfiles(await getMyProfiles());
+  }
 
 async function handleMeasurementModeChange(newMode) {
   /*
@@ -859,8 +874,7 @@ async function handleMeasurementModeChange(newMode) {
    */
 
   if (newMode === "CUSTOM") {
-    setMeasurementMode("CUSTOM");
-    setError("");
+    await openMySize();
     return;
   }
 
@@ -1079,18 +1093,53 @@ async function handleMeasurementModeChange(newMode) {
   // to the old behavior if the pricing manifest hasn't loaded yet.
   // handleAddToCart below re-fetches the authoritative server price
   // before anything is actually charged, regardless of what's shown here.
+  // Once a saved configuration exists and nothing is still saving, show the
+  // DATABASE price (the one that will be charged). The instant local price is
+  // only a preview while a tap is still being saved.
+  const serverPrice = Number(configuration?.pricing?.sellingPrice);
   const displayedPrice =
-    localPrice?.sellingPrice ??
-    (configuration?.pricing?.sellingPrice
-      ? configuration.pricing.sellingPrice
-      : previewPrice?.selling_price);
+    configuration && syncingCount === 0 && serverPrice > 0
+      ? serverPrice
+      : (localPrice?.sellingPrice ??
+        (serverPrice > 0 ? serverPrice : previewPrice?.selling_price));
 
   /* =========================================================
      RENDER
      ========================================================= */
 
   const isCustomizing = loading;
-  const hasDiscount = configuration?.pricing?.maxDiscountAmount > 0;
+  // First My size order: database-calculated 15% offer (never below floor).
+  useEffect(() => {
+    let cancelled = false;
+    if (!configuration?.id) {
+      setOffer(null);
+      return undefined;
+    }
+    getCustomSizeOffer(configuration.id)
+      .then((o) => {
+        if (!cancelled) setOffer(o);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [configuration?.id, configuration?.pricing?.sellingPrice, measurementMode, user?.id]);
+
+  const offerApplies =
+    measurementMode === "CUSTOM" && offer?.eligible && Number(offer.offerPrice) > 0;
+  const shownPrice = offerApplies ? Number(offer.offerPrice) : displayedPrice;
+  // Before a configuration exists, estimate from the default price (the
+  // database caps the discount at the profit above the price floor).
+  const estimatedSaving = (() => {
+    if (offer?.eligible) return Number(offer.saving) || 0;
+    const price = Number(displayedPrice);
+    const cap = Number(previewPrice?.max_discount_amount);
+    if (!(price > 0)) return 0;
+    const fifteen = Math.round(price * 0.15);
+    return Number.isFinite(cap) && cap > 0 ? Math.min(fifteen, Math.floor(cap)) : fifteen;
+  })();
+  const showSavingsNudge =
+    measurementMode !== "CUSTOM" && offer?.eligible !== false && estimatedSaving > 0;
   const addedSuccess = Boolean(cartMessage) && !error;
 
   /* =========================================================
@@ -1246,13 +1295,18 @@ async function handleMeasurementModeChange(newMode) {
           <div>
             <div className="flex items-baseline gap-3">
               <span
-                key={displayedPrice}
+                key={shownPrice}
                 className="animate-pop-in font-[var(--font-display)] text-3xl text-[var(--color-gold-bright)]"
               >
-                {displayedPrice
-                  ? `₹${Number(displayedPrice).toLocaleString("en-IN")}`
+                {shownPrice
+                  ? `₹${Number(shownPrice).toLocaleString("en-IN")}`
                   : "—"}
               </span>
+              {offerApplies && (
+                <span className="text-sm text-[var(--color-text-faint)] line-through">
+                  ₹{Number(offer.listPrice).toLocaleString("en-IN")}
+                </span>
+              )}
               {!displayedPrice && (
                 <span className="text-xs text-[var(--color-text-faint)]">
                   Calculating price…
@@ -1260,22 +1314,21 @@ async function handleMeasurementModeChange(newMode) {
               )}
             </div>
 
-            {hasDiscount && (
-              <div className="mt-1.5 text-xs">
-                <span className="text-[var(--color-success)]">
-                  Up to ₹
-                  {Number(
-                    configuration.pricing.maxDiscountAmount
-                  ).toLocaleString("en-IN")}{" "}
-                  discount available
-                </span>
-                <span className="text-[var(--color-text-faint)]">
-                  {" "}
-                  · up to{" "}
-                  {Number(configuration.pricing.maxDiscountPercent).toFixed(1)}
-                  % off
-                </span>
+            {offerApplies && (
+              <div className="mt-1.5 text-xs text-[var(--color-success)]">
+                {Number(offer.percent)}% off your first My size order: you save ₹
+                {Number(offer.saving).toLocaleString("en-IN")}
               </div>
+            )}
+            {showSavingsNudge && (
+              <button
+                type="button"
+                onClick={openMySize}
+                className="om-tap mt-2 block text-left text-xs text-[var(--color-success)] underline-offset-2 hover:underline"
+              >
+                Use My size and save about ₹{estimatedSaving.toLocaleString("en-IN")} on your
+                first made-to-measure order →
+              </button>
             )}
           </div>
 
@@ -1284,8 +1337,8 @@ async function handleMeasurementModeChange(newMode) {
             <p className="text-sm font-medium mb-2">Sizing Method</p>
             <div className="inline-flex rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] p-1">
               {[
-                { key: "STANDARD", label: "Standard Size" },
-                { key: "CUSTOM", label: "Custom Measurements" },
+                { key: "STANDARD", label: "Standard size" },
+                { key: "CUSTOM", label: "My size" },
               ].map((mode) => (
                 <button
                   key={mode.key}
@@ -1329,52 +1382,30 @@ async function handleMeasurementModeChange(newMode) {
             </div>
           )}
 
-          {/* CUSTOM MEASUREMENTS */}
+          {/* MY SIZE */}
           {measurementMode === "CUSTOM" && (
             <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-4 animate-fade-up">
-              <p className="text-sm font-medium">Custom Measurements</p>
-              <p className="text-xs text-[var(--color-text-faint)] mt-1 mb-3">
-                Enter your body measurements in centimeters.
+              <p className="text-sm font-medium">
+                Made to your measurements
+                {activeProfileName ? ` · ${activeProfileName}` : ""}
               </p>
-
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { key: "chest", label: "Chest" },
-                  { key: "waist", label: "Waist" },
-                  { key: "hip", label: "Hip" },
-                ].map((field) => (
-                  <label key={field.key} className="flex flex-col gap-1">
-                    <span className="text-[11px] text-[var(--color-text-muted)]">
-                      {field.label} (cm)
-                    </span>
-                    <input
-                      type="number"
-                      min="1"
-                      step="0.1"
-                      value={customMeasurements[field.key]}
-                      disabled={loading}
-                      onChange={(event) =>
-                        setCustomMeasurements((current) => ({
-                          ...current,
-                          [field.key]: event.target.value,
-                        }))
-                      }
-                      className="rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2.5 py-2 text-sm outline-none focus:border-[var(--color-gold)]"
-                    />
-                  </label>
-                ))}
+              <p className="mt-1 text-xs text-[var(--color-text-faint)]">
+                Priced from the standard size that fits you best.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  className="!px-5 !py-2.5 !text-sm"
+                  loading={loading}
+                  onClick={openMySize}
+                >
+                  Change measurements
+                </Button>
               </div>
-
-              <Button
-                variant="secondary"
-                className="mt-4 !px-5 !py-2.5 !text-sm"
-                loading={loading}
-                onClick={handleSaveMeasurements}
-              >
-                Save Measurements
-              </Button>
             </div>
           )}
+          <DeliveryEstimate />
+          <RemakePromise compact={measurementMode !== "CUSTOM"} />
 
           {/* MATERIAL — locked until Customize is tapped */}
           <div>
@@ -1565,11 +1596,11 @@ async function handleMeasurementModeChange(newMode) {
             Price
           </span>
           <span
-            key={displayedPrice}
+            key={shownPrice}
             className="animate-pop-in font-[var(--font-display)] text-lg text-[var(--color-gold-bright)]"
           >
-            {displayedPrice
-              ? `₹${Number(displayedPrice).toLocaleString("en-IN")}`
+            {shownPrice
+              ? `₹${Number(shownPrice).toLocaleString("en-IN")}`
               : "—"}
           </span>
         </div>
@@ -1605,6 +1636,15 @@ async function handleMeasurementModeChange(newMode) {
           )}
         </Button>
       </div>
+
+      <MeasurementModal
+        open={sizeModalOpen}
+        onClose={() => setSizeModalOpen(false)}
+        form={measurementForm}
+        profiles={profiles}
+        onSubmit={handleSizeModalSubmit}
+        onDeleteProfile={handleDeleteProfile}
+      />
     </section>
   );
 }
