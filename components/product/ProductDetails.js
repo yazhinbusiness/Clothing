@@ -14,7 +14,7 @@ import {
   applyProfileToConfiguration,
   getCustomSizeOffer,
 } from "@/lib/measurements/api";
-import { computeShirtPrice } from "@/lib/pricing/shirtPricing";
+import { computePrice } from "@/lib/pricing/shirtPricing";
 
 import {
   getDefaultProductPrice,
@@ -297,7 +297,7 @@ export default function ProductDetails({
   const localPrice = useMemo(() => {
     if (!pricingManifest) return null;
     try {
-      return computeShirtPrice(pricingManifest, {
+      return computePrice(pricingManifest, {
         sizeCode: selectedSize,
         materialCode: selectedMaterial,
         options: draftSelection,
@@ -1266,6 +1266,7 @@ async function handleMeasurementModeChange(newMode) {
             manifest={manifest}
             selection={draftSelection}
             colorHex={getColorHex(selectedColor)}
+            fit="contain"
           />
         </FloatingPreview>
 

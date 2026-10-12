@@ -9,7 +9,7 @@ import { useId, useMemo, useState } from "react";
    changes in this rewrite (see below).
    ========================================================= */
 
-function Layer({ src, zIndex = 1, filterId, alt = "", visible }) {
+function Layer({ src, zIndex = 1, filterId, alt = "", visible, onSize }) {
   const [failed, setFailed] = useState(false);
 
   // If a DB row ever points at a file that no longer exists (e.g. a
@@ -29,6 +29,7 @@ function Layer({ src, zIndex = 1, filterId, alt = "", visible }) {
       draggable={false}
       loading="eager"
       onError={() => setFailed(true)}
+      onLoad={onSize ? (e) => onSize(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight) : undefined}
       style={{
         position: "absolute",
         inset: 0,
@@ -123,7 +124,16 @@ function getAssetUrl(fileKey) {
      e.g. { FIT: "REGULAR", COLLAR: "CLASSIC", SLEEVE: "FULL", ... }
    @param {string} colorHex - current color tint
    ========================================================= */
-export default function ShirtCustomizer({ manifest, selection, colorHex = "#f5f1ea" }) {
+export default function ShirtCustomizer({ manifest, selection, colorHex = "#f5f1ea", fit = "width" }) {
+  // Picture shape comes from the artwork itself: square shirts/pants stay
+  // square, taller garments (kurtis) get a portrait frame so they show bigger.
+  const [ratio, setRatio] = useState(1);
+  const onSize = (w, h) => {
+    if (w > 0 && h > 0) {
+      const r = Math.round((w / h) * 1000) / 1000;
+      setRatio((prev) => (prev === r ? prev : r));
+    }
+  };
   // Unique per instance (the page renders this component twice: gallery
   // and floating preview) and safe to use inside url(#...).
   const filterId = `om-tint-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
@@ -144,7 +154,7 @@ export default function ShirtCustomizer({ manifest, selection, colorHex = "#f5f1
 
   if (!manifest?.assets?.length) {
     return (
-      <div className="flex items-center justify-center aspect-square w-full">
+      <div className="flex items-center justify-center w-full" style={{ aspectRatio: String(ratio) }}>
         <span className="h-8 w-8 rounded-full border-2 border-[var(--color-gold)] border-t-transparent animate-spin" />
       </div>
     );
@@ -152,18 +162,29 @@ export default function ShirtCustomizer({ manifest, selection, colorHex = "#f5f1
 
   return (
     <div
-      style={{
-        position: "relative",
-        width: "100%",
-        maxWidth: "600px",
-        aspectRatio: "1 / 1",
-        margin: "0 auto",
-        overflow: "hidden",
-      }}
+      style={
+        fit === "contain"
+          ? {
+              position: "relative",
+              height: "100%",
+              aspectRatio: String(ratio),
+              margin: "0 auto",
+              overflow: "hidden",
+            }
+          : {
+              position: "relative",
+              width: "100%",
+              maxWidth: `min(600px, calc(80vh * ${ratio}))`,
+              aspectRatio: String(ratio),
+              margin: "0 auto",
+              overflow: "hidden",
+            }
+      }
     >
       <TintFilter id={filterId} color={colorHex} />
-      {manifest.assets.map((asset) => (
+      {manifest.assets.map((asset, i) => (
         <Layer
+          onSize={i === 0 ? onSize : undefined}
           key={asset.asset_code}
           src={getAssetUrl(asset.file_key)}
           zIndex={asset.z_index ?? 1}

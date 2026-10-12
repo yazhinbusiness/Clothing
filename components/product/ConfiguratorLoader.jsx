@@ -11,17 +11,13 @@ import {
   getProductMaterials,
   getProductColorsForMaterial,
   getDefaultProductPrice,
+  getProductGarmentCode,
 } from "@/services/productService";
+import { computePrice } from "@/lib/pricing/shirtPricing";
 import {
   getCustomizerManifest,
   getPricingManifest,
 } from "@/services/customizerService";
-
-// TODO: once Pants/Kurti/Short Kurti exist, derive this from the
-// product (e.g. product.garment_code) instead of hardcoding — there's
-// only one garment type live right now, so this is safe for now but
-// won't scale past Shirt as-is.
-const GARMENT_CODE = "SHIRT";
 
 function groupProductOptions(options) {
   return options.reduce((groups, option) => {
@@ -82,6 +78,10 @@ export default function ConfiguratorLoader({
         setLoading(true);
         setError("");
 
+        // Which garment (SHIRT, PANTS ...) this product is - picks the right
+        // picture set and price formula.
+        const garmentCode = await getProductGarmentCode(productCode);
+
         const [
           productData,
           sizeData,
@@ -95,12 +95,16 @@ export default function ConfiguratorLoader({
           getProductSizes(productCode),
           getProductOptions(productCode),
           getProductMaterials(productCode),
-          getDefaultProductPrice({ productCode, sizeCode: "M" }),
+          // The database "default price" function only knows shirts; for other
+          // garments the price is worked out from the pricing manifest below.
+          garmentCode === "SHIRT"
+            ? getDefaultProductPrice({ productCode, sizeCode: "M" })
+            : Promise.resolve(null),
           // Fetched ONCE here — this is what lets every option change
           // after this point be instant (image) and local (price),
           // with zero further network calls until Add to Bag.
-          getCustomizerManifest(GARMENT_CODE),
-          getPricingManifest(GARMENT_CODE),
+          getCustomizerManifest(garmentCode),
+          getPricingManifest(garmentCode),
         ]);
 
         const materialsWithOverride = withDefaultOverride(
@@ -144,7 +148,28 @@ export default function ConfiguratorLoader({
         setOptions(optionData);
         setMaterials(materialsWithOverride);
         setColors(withDefaultOverride(colorData, defaultColorCode, "color_code"));
-        setDefaultPrice(priceData);
+        let startingPrice = priceData;
+        if (!startingPrice && pricingManifestData) {
+          const defaults = Object.fromEntries(
+            optionData
+              .filter((o) => o.is_default)
+              .map((o) => [o.option_group_code, o.option_value_code])
+          );
+          const size =
+            sizeData.find((x) => x.size_code === "M")?.size_code ?? sizeData[0]?.size_code;
+          const calc = computePrice(pricingManifestData, {
+            sizeCode: size,
+            materialCode: startingMaterialCode,
+            options: defaults,
+          });
+          startingPrice = {
+            selling_price: String(calc.sellingPrice),
+            protected_price_floor: String(calc.protectedPriceFloor),
+            max_discount_amount: String(calc.maxDiscountAmount),
+            max_discount_percent: String(calc.maxDiscountPercent),
+          };
+        }
+        setDefaultPrice(startingPrice);
         setManifest(manifestData);
         setPricingManifest(pricingManifestData);
       } catch (err) {

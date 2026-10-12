@@ -138,3 +138,12 @@ export async function getDefaultProductPrice({
 
   return data[0];
 }
+
+/** "SHIRT", "PANTS", ... for a product_code (falls back to SHIRT). */
+export async function getProductGarmentCode(productCode, fallback = "SHIRT") {
+  const { data, error } = await supabase.rpc("get_product_garment_code", {
+    p_product_code: productCode,
+  });
+  if (error || !data) return fallback;
+  return data;
+}
