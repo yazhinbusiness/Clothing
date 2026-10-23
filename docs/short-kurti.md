@@ -1,25 +1,29 @@
 # Short Kurti
 
-Fourth garment. Same options as the Kurti, with its own pictures and its own prices.
+Each short kurti style has its **own** neck and sleeve pictures (same idea as the Kurti).
+Same options and fabric (Cotton, Satin) as the Kurti; its own pictures and its own prices.
 
 ## What customers can choose
 
-| Option | Choices | Default | Picture? |
-|---|---|---|---|
-| Style | Straight, A-line, Empire line, Anarkali, High-low, Empire A-line, Flared, Front slit, Peplum, Shirt style | Straight | Yes (body) |
-| Neck | Bow, Double, Heart, Keyhole, Mandarin, Notched, Peter Pan, Round, Sailor, Scallop, Square, V-neck | Round | Yes |
-| Sleeve | Bell, Cap, Flared, Full, Half, Large bishop, Small bishop, No sleeve, Petal, Puff, 3/4 | Half | Yes (left + right pictures) |
-| Pockets / Knot at back / Knot at hip | Yes / No | Yes | No (price only) |
-| Zipper | Yes / No | No | No (price only) |
-| Fabric | Cotton, Satin | Cotton | - |
-| Colour | Same as the shirt | shirt default | Yes (tint) |
+| Section | Choices | Default |
+|---|---|---|
+| Style | Straight, A-line, Empire line, Empire cut, Angrakha, Flared, Front slit, High-low, Peplum, Shirt style | Straight |
+| Neck | Boat, Classic collar, Keyhole, Mandarin collar, Notched collar, Peter Pan collar, Round, Scallop square, Scallop V, Square, Sweetheart, V-neck | Round |
+| Sleeve | Bell, Bishop, Cap, Flared, Full, Half, No sleeve, Petal, Puff | Half |
+| Pockets / Knot at back / Knot at hip | Yes / No (price only) | Yes |
+| Zipper | Yes / No (price only) | No |
 
-Not offered: a **Classic** neck (no such image in the short set). Note: the Anarkali and Flared pictures look almost identical - send a different Anarkali if you want them to differ.
+Only choices with a picture for the chosen style are shown:
+- **Angrakha** has no neck pictures (the neckline is part of the body), so it has no Neck section.
+- **Shirt style** has only Classic, Mandarin, Notched and Peter Pan collars (all 9 sleeves are available).
+- **Empire cut** has 7 necks, **Flared** 10, **High-low** has 11 necks and no Bell or Full sleeve.
 
 ## Setup (once)
 
-1. Copy the project files over, including the 44 images `public/assets/short_kurti_*.webp`.
-2. `sql/pants.sql` and `sql/kurti.sql` must already have been run. Then run `sql/short_kurti.sql` in the Supabase SQL editor (safe to run again). Check, as two separate queries:
+1. Copy the project files over (images are `public/assets/short_kurti2_*.webp`, 269 files).
+   You can **delete the old `public/assets/short_kurti_*.webp`** files (44 files, no longer used).
+2. Supabase -> SQL editor -> run `sql/short_kurti_v2.sql` (after `short_kurti.sql`; safe to re-run).
+   Existing prices are kept. Check, as two separate queries:
    ```sql
    select public.create_default_product_configuration('COTTON_SHORT_KURTI', 'M') as id;
    ```
@@ -27,13 +31,14 @@ Not offered: a **Classic** neck (no such image in the short set). Note: the Anar
    select selling_price, total_fabric_meters from public.product_configuration where id = 'PASTE-THE-ID-HERE';
    ```
    Expect about 2016.06 and 2.200.
-3. Shopify -> Add product, **Product type: `Short Kurti`** (exactly), untick "Track quantity". Optional tags: `style:Peplum`, `neck:Heart`, `sleeve:Full`, `color:Black`.
-4. Restart `npm run dev`.
+3. Shopify product type stays `Short Kurti`. Restart `npm run dev`, hard refresh.
+
+## Colour
+
+All pictures are neutral grey with equal brightness, so a colour looks the same on every style, neck and sleeve.
+Per-style pictures use `@<STYLE>` at the end of the asset_code (see docs/kurti.md).
 
 ## Prices (placeholders)
 
-Cotton 320 / Satin 520 per metre (own price for this garment), fabric 1.60 m (2XS) to 2.50 m (6XL), M = 1.80; stitching 450, packing 50, shipping 80; remake 3%, payment fee 2.5%; profit 15% + 25%. Option costs and fabric: tables `option_fixed_cost` and `option_fabric_consumption` (garment SHORT_KURTI), same tables as the other garments.
-
-## Pictures
-
-Kurti and Short Kurti pictures are portrait (3:4) and cropped tight so the garment fills the frame. The preview adapts to the picture shape automatically; shirts and pants stay square. To replace a picture later, send the new images and I re-crop them together (all layers of one garment must share one crop so they line up).
+`garment_material_price` (Cotton 320 / Satin 520), `garment_size_fabric_consumption`, `garment_base_cost`,
+`garment_cost_rule`, `garment_profit_rule`, `option_fixed_cost`, `option_fabric_consumption` (garment SHORT_KURTI).

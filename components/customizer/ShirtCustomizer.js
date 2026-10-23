@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
+import { assetStyleTag } from "@/lib/customizer/availability";
 
 /* =========================================================
    LAYER — unchanged rendering technique from before: the
@@ -9,7 +10,7 @@ import { useId, useMemo, useState } from "react";
    changes in this rewrite (see below).
    ========================================================= */
 
-function Layer({ src, zIndex = 1, filterId, alt = "", visible, onSize }) {
+function Layer({ src, zIndex = 1, filterId, alt = "", visible, onSize, lazy = false }) {
   const [failed, setFailed] = useState(false);
 
   // If a DB row ever points at a file that no longer exists (e.g. a
@@ -27,7 +28,7 @@ function Layer({ src, zIndex = 1, filterId, alt = "", visible, onSize }) {
       src={src}
       alt={alt}
       draggable={false}
-      loading="eager"
+      loading={lazy ? "lazy" : "eager"}
       onError={() => setFailed(true)}
       onLoad={onSize ? (e) => onSize(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight) : undefined}
       style={{
@@ -149,6 +150,13 @@ export default function ShirtCustomizer({ manifest, selection, colorHex = "#f5f1
       const codes = manifest?.valueAssets?.[`${groupCode}:${valueCode}`];
       if (codes) codes.forEach((c) => visible.add(c));
     }
+    // Per-style pictures (asset_code ends in "@<STYLE>"): only the selected
+    // style's pictures are drawn.
+    const style = selection?.STYLE;
+    for (const code of [...visible]) {
+      const tag = assetStyleTag(code);
+      if (tag && tag !== style) visible.delete(code);
+    }
     return visible;
   }, [manifest, selection]);
 
@@ -191,6 +199,7 @@ export default function ShirtCustomizer({ manifest, selection, colorHex = "#f5f1
           filterId={filterId}
           alt={asset.asset_code}
           visible={visibleAssetCodes.has(asset.asset_code)}
+          lazy={Boolean(assetStyleTag(asset.asset_code)) && assetStyleTag(asset.asset_code) !== selection?.STYLE}
         />
       ))}
     </div>

@@ -1,54 +1,57 @@
 # Kurti
 
-Kurti is the third garment. Same customizer page, size / My size flow, cart and checkout.
+Each kurti style has its **own** neck and sleeve pictures, so the customizer shows the
+neck and sleeve that belong to the chosen style.
 
 ## What customers can choose
 
-| Option | Choices | Default | Changes the picture? |
-|---|---|---|---|
-| Style | Straight, A-line, Anarkali, Empire line, Flared high-low, Front slit, High-low, Open slit | Straight | **Yes** (body layer) |
-| Neck | Bow, Classic, Double, Mandarin, Notched, Peter Pan, Round, Sailor, V-neck | Classic | **Yes** (neck layer) |
-| Sleeve | Bell, Bishop, Cap, Flared, Full, Half, No sleeve, Petal, Puff, 3/4 | Half | **Yes** (sleeve layer) |
-| Pockets | Yes / No | Yes | No (price only) |
-| Knot at back | Yes / No | Yes | No (price only) |
-| Knot at hip | Yes / No | Yes | No (price only) |
-| Zipper | Yes / No | No | No (price only) |
-| Fabric | Cotton, Satin | Cotton | - |
-| Colour | Same colours as the shirt | shirt default | Yes (tint) |
+| Section | Choices | Default |
+|---|---|---|
+| Style | Straight, A-line, Anarkali, Angrakha, Empire cut, High-low, Kaftan, Shirt kurti | Straight |
+| Neck | Boat, Classic collar, Mandarin collar, Notched collar, Peter Pan collar, Round, Scallop square, Scallop V, Square, Sweetheart, V-neck | Classic collar |
+| Sleeve | Bell, Bishop, Cap, Full, Half, No sleeve, Petal, Puff | Half |
+| Pockets / Knot at back / Knot at hip | Yes / No (price only) | Yes |
+| Zipper | Yes / No (price only) | No |
+| Fabric | Cotton, Satin | Cotton |
+| Colour | Same as the shirt | shirt default |
 
-Raglan sleeve is not offered on kurtis.
+Only choices that have a picture for the chosen style are shown. Examples: **Kaftan has no
+Sleeve section** (sleeves are part of its picture), **Angrakha** has no Boat or Scallop V neck,
+**Shirt kurti** has 4 fewer necks. When you change the style, a neck or sleeve that does not
+exist for it moves to the first one that does (Kaftan sets Sleeve to "No sleeve", which costs nothing).
 
 ## Setup (once)
 
-1. Copy the project files over, including the 27 images `public/assets/kurti_*.webp`.
-2. `sql/pants.sql` must already have been run (it is, for you). Supabase -> SQL editor -> run `sql/kurti.sql`. Safe to run again.
-   Check (two separate queries):
+1. Copy the project files over (images are `public/assets/kurti2_*.webp`, 202 files).
+   You can **delete the old `public/assets/kurti_*.webp`** files (27 files, no longer used).
+2. Supabase -> SQL editor -> run `sql/kurti_v2.sql` (after `pants.sql` and `kurti.sql`; safe to re-run).
+   It replaces the old styles / necks / sleeves and pictures; existing kurti prices are kept.
+3. Check the price (two separate queries):
    ```sql
    select public.create_default_product_configuration('COTTON_KURTI', 'M') as id;
    ```
-   then
    ```sql
-   select selling_price, total_fabric_meters from public.product_configuration
-   where id = 'PASTE-THE-ID-HERE';
+   select selling_price, total_fabric_meters from public.product_configuration where id = 'PASTE-THE-ID-HERE';
    ```
-   Expect about 2588.66 and 3.020 with the placeholder costs.
-3. Shopify admin -> Products -> Add product:
-   - Title: e.g. `Cotton Kurti`
-   - **Product type: `Kurti`** (exactly; "Short Kurti" will not match)
-   - No tags or metafields needed. Optional tags: `style:A-line`, `neck:V`, `sleeve:Full`, `color:Black`.
-   - Price anything; untick "Track quantity"; same sales channels as shirts.
-4. Restart `npm run dev` and open the product.
+   Expect about 2588.66 and 3.020.
+4. Shopify product type stays `Kurti`. Optional tags: `style:Kaftan`, `neck:Round`, `sleeve:Full`, `color:Black`.
+5. Restart `npm run dev`, hard refresh.
 
-## Prices (placeholders - change later)
+## How the per-style pictures work (for later)
 
-| What | Table |
-|---|---|
-| Kurti fabric price per metre (Cotton 320, Satin 520) | `garment_material_price` |
-| Fabric per size (2.30 m XS ... 3.30 m 6XL, M = 2.60) | `garment_size_fabric_consumption` (garment KURTI) |
-| Stitching 550 / packing 50 / shipping 90 | `garment_base_cost` |
-| Remake 3%, payment fee 2.5% | `garment_cost_rule` |
-| Profit 15% fixed + 25% additional | `garment_profit_rule` |
-| Cost of each option | `option_fixed_cost` |
-| Extra fabric of each option | `option_fabric_consumption` |
+A picture's `asset_code` ends in `@<STYLE>` (e.g. `KURTI2_NECK_NECK_ROUND@KURTI_A_LINE`).
+The customizer draws it only for that style, and offers a neck/sleeve only if it has a picture for the
+selected style. A new style = add the style value, its body picture and its tagged neck/sleeve
+pictures (see `sql/kurti_v2.sql`).
 
-Pricing = (size fabric + fabric of every selected option) x fabric price + option costs + stitching/packing/shipping, then the cascading rules, same as pants.
+## Colour
+
+All kurti pictures are neutral grey (no colour cast) with the same brightness, so any colour tint looks
+the same on every style, neck and sleeve. New pictures get the same treatment before they go in.
+
+## Prices (placeholders)
+
+Same tables as before: `garment_material_price` (Cotton 320 / Satin 520), `garment_size_fabric_consumption`,
+`garment_base_cost`, `garment_cost_rule`, `garment_profit_rule`, `option_fixed_cost`, `option_fabric_consumption`
+(garment KURTI). New values from this update (Angrakha, Kaftan, Shirt kurti, Boat, Classic collar ... Sweetheart)
+have placeholder costs.

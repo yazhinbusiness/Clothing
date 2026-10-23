@@ -33,6 +33,14 @@ import Chip from "@/components/ui/Chip";
 import { resolveOptionCode } from "@/lib/shop/optionMatch";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import OptionSwatchCard from "@/components/product/OptionSwatchCard";
+import CustomizeSection from "@/components/product/CustomizeSection";
+import {
+  STYLE_GROUP,
+  availableValues,
+  repairSelection,
+  manifestGroupName,
+  manifestValueName,
+} from "@/lib/customizer/availability";
 import { getColorHex } from "@/lib/colorMap";
 import {
   CheckIcon,
@@ -55,6 +63,9 @@ const OPTION_GROUP_ICONS = {
   POCKET: PocketIcon,
   PLACKET: PlacketIcon,
   FIT: FitIcon,
+  STYLE: FitIcon,
+  NECK: CollarIcon,
+  KURTI_POCKETS: PocketIcon,
 };
 
 function formatOptionLabel(code) {
@@ -235,7 +246,18 @@ export default function ProductDetails({
     })
   );
 
-  const [draftSelection, setDraftSelection] = useState(initialDraftSelection);
+  // A starting style (listing tag) may not have every neck / sleeve - fix up.
+  const repairedStart = repairSelection(manifest, options, initialDraftSelection);
+  const [draftSelection, setDraftSelection] = useState({
+    ...initialDraftSelection,
+    ...repairedStart,
+  });
+
+  // Which Customize sections are expanded (the first one starts open).
+  const [openGroups, setOpenGroups] = useState(() => {
+    const first = Object.keys(options)[0];
+    return first ? { [first]: true } : {};
+  });
 
   // Tracks the most recent in-flight background save, so Add to Bag /
   // Buy Now can wait for it to actually land before freezing a price —
@@ -262,10 +284,10 @@ export default function ProductDetails({
 
   const [syncingCount, setSyncingCount] = useState(0);
 
-  function withDraftUpdate(groupCode, valueCode, handler) {
+  function withDraftUpdate(groupCode, valueCode, handler, extra = {}) {
     return (...args) => {
       // Visual update is always instant, regardless of anything below.
-      setDraftSelection((prev) => ({ ...prev, [groupCode]: valueCode }));
+      setDraftSelection((prev) => ({ ...prev, [groupCode]: valueCode, ...extra }));
 
       // But background SAVES are serialized — if you tap two options
       // quickly, the second save waits for the first to land before
@@ -503,7 +525,8 @@ const [offer, setOffer] = useState(null);
 
   async function handleOptionChange(
     groupCode,
-    optionValueCode
+    optionValueCode,
+    extra = {}
   ) {
     /*
      * Extra frontend guard.
@@ -542,6 +565,15 @@ const [offer, setOffer] = useState(null);
         optionGroupCode: groupCode,
         optionValueCode,
       });
+
+      // Other groups that had to follow (e.g. a new style's neck / sleeve).
+      for (const [extraGroup, extraValue] of Object.entries(extra)) {
+        await updateConfigurationOption({
+          configurationId,
+          optionGroupCode: extraGroup,
+          optionValueCode: extraValue,
+        });
+      }
 
       const updatedConfiguration =
         await getConfigurationDetails(
@@ -1465,10 +1497,10 @@ async function handleMeasurementModeChange(newMode) {
             </div>
           </div>
 
-          {/* CUSTOMIZATION OPTIONS */}
+          {/* CUSTOMIZATION OPTIONS — one expandable section per group */}
           <div ref={optionsSectionRef} className="scroll-mt-28">
             <p className="text-sm font-medium mb-3">Customize</p>
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2">
               {Object.entries(options).map(([groupCode, groupOptions]) => {
                 const defaultOption = groupOptions.find(
                   (option) => option.is_default
@@ -1480,25 +1512,59 @@ async function handleMeasurementModeChange(newMode) {
                 const activeValue =
                   draftSelection[groupCode] ?? defaultOption ?? "";
 
+                // Only the choices that exist for the selected style (e.g.
+                // Kaftan has no sleeves) — an empty group is hidden entirely.
+                const visibleOptions = availableValues(
+                  manifest,
+                  groupCode,
+                  groupOptions,
+                  draftSelection
+                );
+                if (visibleOptions.length === 0) return null;
+
                 const GroupIcon = OPTION_GROUP_ICONS[groupCode] ?? FabricIcon;
+                const groupTitle =
+                  manifestGroupName(manifest, groupCode) ??
+                  formatOptionLabel(groupCode);
+                const valueLabel = (code) =>
+                  manifestValueName(manifest, groupCode, code) ??
+                  formatOptionLabel(code);
+                const isOpen = Boolean(openGroups[groupCode]);
 
                 return (
-                  <div key={groupCode}>
-                    <p className="text-[11px] uppercase tracking-wide text-[var(--color-text-faint)] mb-2">
-                      {formatOptionLabel(groupCode)}
-                    </p>
+                  <CustomizeSection
+                    key={groupCode}
+                    title={groupTitle}
+                    summary={activeValue ? valueLabel(activeValue) : ""}
+                    open={isOpen}
+                    onToggle={() =>
+                      setOpenGroups((prev) => ({
+                        ...prev,
+                        [groupCode]: !prev[groupCode],
+                      }))
+                    }
+                  >
                     {/* Wrapping grid — every option is always visible,
                         nothing hidden behind a horizontal scroll. */}
                     <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                      {groupOptions.map((option) => {
+                      {visibleOptions.map((option) => {
                         const disabled = isOptionDisabled(
                           groupCode,
                           option.option_value_code
                         );
+                        // Picking a style can change which necks / sleeves
+                        // exist: move those along with it.
+                        const extra =
+                          groupCode === STYLE_GROUP
+                            ? repairSelection(manifest, options, {
+                                ...draftSelection,
+                                [groupCode]: option.option_value_code,
+                              })
+                            : {};
                         return (
                           <OptionSwatchCard
                             key={option.option_value_code}
-                            label={formatOptionLabel(option.option_value_code)}
+                            label={valueLabel(option.option_value_code)}
                             icon={GroupIcon}
                             title={
                               disabled ? "Unavailable with current options" : undefined
@@ -1513,16 +1579,18 @@ async function handleMeasurementModeChange(newMode) {
                                 withPulse(() =>
                                   handleOptionChange(
                                     groupCode,
-                                    option.option_value_code
+                                    option.option_value_code,
+                                    extra
                                   )
-                                )
+                                ),
+                                extra
                               )
                             )}
                           />
                         );
                       })}
                     </div>
-                  </div>
+                  </CustomizeSection>
                 );
               })}
             </div>
