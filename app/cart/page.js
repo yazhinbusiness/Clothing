@@ -225,7 +225,7 @@ export default function CartPage() {
                             {item.measurements?.map((measurement) => (
                               <span key={measurement.code}>
                                 {measurement.name}:{" "}
-                                {Number(measurement.measurementMm) / 10} cm
+                                {Number(measurement.measurementMm)} mm
                               </span>
                             ))}
                           </div>

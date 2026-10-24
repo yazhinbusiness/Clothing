@@ -34,7 +34,7 @@ function lineProperties(item) {
     add(
       "Measurements",
       (item.measurements ?? [])
-        .map((m) => `${m.name}: ${Number(m.measurementMm) / 10} cm`)
+        .map((m) => `${m.name}: ${Number(m.measurementMm)} mm`)
         .join(", ")
     );
   } else {

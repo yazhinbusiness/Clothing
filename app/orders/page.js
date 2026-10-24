@@ -13,7 +13,21 @@ import MeasurementModal from "@/components/measurements/MeasurementModal";
 import { getMeasurementForm, requestRemake } from "@/lib/measurements/api";
 
 const REMAKE_WINDOW_DAYS = 15; // keep in step with request_remake() in sql/measurements.sql
-const REMAKE_LIMIT_MM = 20; // 2 cm either way
+const REMAKE_LIMIT_MM = 20; // 20 mm either way
+
+const REMAKE_LABEL = {
+  REQUESTED: "Remake requested",
+  APPROVED: "Remake approved",
+  IN_STITCHING: "Remake being stitched",
+  SHIPPED: "Remake shipped",
+  REJECTED: "Remake not approved",
+};
+const STAGE_LABEL = {
+  NEW: "Order received",
+  STITCHING: "Being stitched",
+  SHIPPED: "Shipped",
+  DELIVERED: "Delivered",
+};
 
 const inr = (n) =>
   `₹${Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
@@ -47,7 +61,7 @@ export default function OrdersPage() {
         const { data, error: err } = await supabase
           .from("checkout_sessions")
           .select(
-            "id, status, created_at, paid_at, delivered_at, total_inr, gst_inr, items, invoice_url, shopify_order_name, shopify_draft_order_name"
+            "id, status, fulfilment_status, courier, tracking_number, created_at, paid_at, delivered_at, total_inr, gst_inr, items, invoice_url, shopify_order_name, shopify_draft_order_name"
           )
           .order("created_at", { ascending: false });
         if (err) throw err;
@@ -56,11 +70,11 @@ export default function OrdersPage() {
         // free-remake bookkeeping (these tables only return the signed-in customer's rows)
         const [{ data: used }, { data: remakeRows }] = await Promise.all([
           supabase.from("custom_first_order_used").select("checkout_session_id").maybeSingle(),
-          supabase.from("remake_requests").select("cart_item_id, status"),
+          supabase.from("remake_requests").select("cart_item_id, status, admin_note, courier, tracking_number"),
         ]);
         if (active) {
           setFirstCustomSessionId(used?.checkout_session_id ?? null);
-          setRemakes(Object.fromEntries((remakeRows ?? []).map((r) => [r.cart_item_id, r.status])));
+          setRemakes(Object.fromEntries((remakeRows ?? []).map((r) => [r.cart_item_id, r])));
         }
       } catch (err) {
         if (active) setError(err.message || "Could not load your orders.");
@@ -151,6 +165,12 @@ export default function OrdersPage() {
                           : `Delivery by ${formatDeliveryDate(deliveryDate(order.paid_at ?? order.created_at))}`}
                       </p>
                     ) : null}
+                    {paid && order.fulfilment_status ? (
+                      <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+                        {STAGE_LABEL[order.fulfilment_status] ?? ""}
+                        {order.tracking_number ? ` · ${order.courier ?? ""} ${order.tracking_number}` : ""}
+                      </p>
+                    ) : null}
                   </div>
                   <span
                     className={`rounded-full px-3 py-1 text-[11px] font-medium border ${
@@ -188,7 +208,7 @@ export default function OrdersPage() {
                     </p>
                     <p className="mt-1 text-[var(--color-text-muted)]">
                       Not happy with the stitching or fit? Ask within {REMAKE_WINDOW_DAYS} days
-                      of delivery. You can change each measurement by up to 2 cm (about ¾ inch). We collect
+                      of delivery. You can change each measurement by up to 20 mm (2 cm, about ¾ inch). We collect
                       the original. No refunds or returns on made-to-measure garments.
                     </p>
                     {(order.items ?? [])
@@ -203,7 +223,12 @@ export default function OrdersPage() {
                           <div key={item.cart_item_id} className="mt-3 flex items-center justify-between gap-3">
                             <span>{item.product_name}</span>
                             {status ? (
-                              <span className="text-[var(--color-success)]">Remake requested</span>
+                              <span className={status.status === "REJECTED" ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"}>
+                                {REMAKE_LABEL[status.status] ?? "Remake requested"}
+                                {status.status === "REJECTED" && status.admin_note ? `: ${status.admin_note}` : ""}
+                                {status.status === "SHIPPED" && status.tracking_number ? ` (${status.courier ?? ""} ${status.tracking_number})` : ""}
+                                {status.status !== "REJECTED" && status.admin_note ? ` - ${status.admin_note}` : ""}
+                              </span>
                             ) : !order.delivered_at ? (
                               <span className="text-[var(--color-text-faint)]">Available once delivered</span>
                             ) : !open ? (
@@ -247,7 +272,7 @@ export default function OrdersPage() {
             cartItemId: remakeTarget.item.cart_item_id,
             values,
           });
-          setRemakes((r) => ({ ...r, [remakeTarget.item.cart_item_id]: "REQUESTED" }));
+          setRemakes((r) => ({ ...r, [remakeTarget.item.cart_item_id]: { status: "REQUESTED" } }));
           setRemakeTarget(null);
         }}
       />

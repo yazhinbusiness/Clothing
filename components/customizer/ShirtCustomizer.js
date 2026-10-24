@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { assetStyleTag } from "@/lib/customizer/availability";
 
 /* =========================================================
@@ -77,8 +77,11 @@ function hexToRgb(hex) {
   return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
 
-function TintFilter({ id, color }) {
-  const GAIN = 2.4;
+function TintFilter({ id, color, gain = 2.4 }) {
+  // gain = how strongly folds/shadows are contrasted around the highlight.
+  // Shirts/pants were tuned at 2.4; the soft, flowing kurti artwork looks
+  // harsh and "computer made" at that strength, so it uses a gentler value.
+  const GAIN = gain;
   const HIGHLIGHT = 0.94;
   const channels = hexToRgb(color).map((c) => Math.max(c, 0.07));
   const slope = channels.map((c) => (GAIN * c).toFixed(4));
@@ -160,6 +163,25 @@ export default function ShirtCustomizer({ manifest, selection, colorHex = "#f5f1
     return visible;
   }, [manifest, selection]);
 
+  // Warm the browser cache so a click shows its picture straight away:
+  // every body picture, plus all neck/sleeve pictures of the CURRENT style.
+  // (Only the selected pieces are put on screen - see below.)
+  const style = selection?.STYLE;
+  useEffect(() => {
+    if (typeof window === "undefined" || !manifest?.assets?.length) return undefined;
+    const urls = [];
+    for (const asset of manifest.assets) {
+      const tag = assetStyleTag(asset.asset_code);
+      if (tag && tag !== style) continue;
+      const url = getAssetUrl(asset.file_key);
+      if (url) urls.push(url);
+    }
+    const warm = () => urls.forEach((u) => { const im = new Image(); im.decoding = "async"; im.src = u; });
+    const idle = window.requestIdleCallback;
+    const handle = idle ? idle(warm, { timeout: 1500 }) : setTimeout(warm, 200);
+    return () => (idle ? window.cancelIdleCallback(handle) : clearTimeout(handle));
+  }, [manifest, style]);
+
   if (!manifest?.assets?.length) {
     return (
       <div className="flex items-center justify-center w-full" style={{ aspectRatio: String(ratio) }}>
@@ -189,8 +211,10 @@ export default function ShirtCustomizer({ manifest, selection, colorHex = "#f5f1
             }
       }
     >
-      <TintFilter id={filterId} color={colorHex} />
-      {manifest.assets.map((asset, i) => (
+      <TintFilter id={filterId} color={colorHex} gain={ratio < 0.9 ? 1.4 : 2.4} />
+      {/* Only the pieces currently in use are drawn (a kurti has 200+ pictures;
+          drawing every hidden one made the page slow). */}
+      {manifest.assets.filter((a) => visibleAssetCodes.has(a.asset_code)).map((asset, i) => (
         <Layer
           onSize={i === 0 ? onSize : undefined}
           key={asset.asset_code}
@@ -198,8 +222,7 @@ export default function ShirtCustomizer({ manifest, selection, colorHex = "#f5f1
           zIndex={asset.z_index ?? 1}
           filterId={filterId}
           alt={asset.asset_code}
-          visible={visibleAssetCodes.has(asset.asset_code)}
-          lazy={Boolean(assetStyleTag(asset.asset_code)) && assetStyleTag(asset.asset_code) !== selection?.STYLE}
+          visible
         />
       ))}
     </div>

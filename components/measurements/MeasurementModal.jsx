@@ -73,7 +73,7 @@ export default function MeasurementModal({
 }) {
   useBodyLock(open);
 
-  const [unit, setUnitState] = useState("in"); // tailors use inches
+  const [unit, setUnitState] = useState("mm"); // measurements are kept in millimetres
   const [view, setView] = useState("edit"); // "pick" | "edit"
   const [entry, setEntry] = useState("form");
   const [step, setStep] = useState(0);
@@ -87,7 +87,7 @@ export default function MeasurementModal({
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem("ohmust_measure_unit");
-      if (saved === "in" || saved === "cm") setUnitState(saved);
+      if (saved === "mm" || saved === "in" || saved === "cm") setUnitState(saved);
     } catch {}
   }, []);
 
@@ -244,7 +244,7 @@ export default function MeasurementModal({
         type="text"
         inputMode="decimal"
         autoComplete="off"
-        placeholder={unit === "in" ? "e.g. 32 1/2" : "e.g. 82.5"}
+        placeholder={unit === "in" ? "e.g. 32 1/2" : unit === "mm" ? "e.g. 825" : "e.g. 82.5"}
         value={values[field.code] ?? ""}
         onChange={(e) => setValues((v) => ({ ...v, [field.code]: e.target.value }))}
         className={inputCls}
@@ -281,7 +281,7 @@ export default function MeasurementModal({
             </h2>
             <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
               {mode === "remake"
-                ? "You can adjust each measurement by up to 2 cm (about ¾ inch)."
+                ? "You can adjust each measurement by up to 20 mm (2 cm, about ¾ inch)."
                 : "Measured once, used for every garment. Saved to your account."}
             </p>
           </div>
@@ -401,8 +401,9 @@ export default function MeasurementModal({
                 <span>Measuring in</span>
                 <div className="inline-flex rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] p-0.5">
                   {[
-                    { key: "in", label: "Inches" },
+                    { key: "mm", label: "mm" },
                     { key: "cm", label: "cm" },
+                    { key: "in", label: "Inches" },
                   ].map((u) => (
                     <button
                       key={u.key}
